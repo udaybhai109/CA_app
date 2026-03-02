@@ -3,6 +3,8 @@ import { useRouter } from "next/router";
 
 import Sidebar from "../components/Sidebar";
 import { AuthProvider } from "../context/AuthContext";
+import "../styles/globals.css";
+import "../styles/theme.css";
 
 export default function App({ Component, pageProps }: AppProps) {
   const router = useRouter();
