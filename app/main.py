@@ -3,6 +3,7 @@ import os
 from datetime import datetime
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from starlette.responses import JSONResponse
@@ -41,6 +42,20 @@ from .period_service import close_period
 app = FastAPI(title="AI Accounting Backend")
 REFRESH_COOKIE_NAME = "refresh_token"
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
+CORS_ALLOW_ORIGINS = os.getenv("CORS_ALLOW_ORIGINS", "*")
+
+if CORS_ALLOW_ORIGINS == "*":
+    allowed_origins = ["*"]
+else:
+    allowed_origins = [origin.strip() for origin in CORS_ALLOW_ORIGINS.split(",") if origin.strip()]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class InvoiceCreateRequest(BaseModel):

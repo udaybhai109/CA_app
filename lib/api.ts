@@ -4,7 +4,7 @@ import { refreshAccessToken } from "./auth";
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API,
-  withCredentials: true,
+  withCredentials: false,
 });
 export const apiClient = api;
 
