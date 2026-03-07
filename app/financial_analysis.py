@@ -1,11 +1,9 @@
 from sqlalchemy.orm import Session
 
 from .accounting_engine import generate_balance_sheet, generate_profit_and_loss
-from .models import JournalEntry, LedgerAccount
 
 
 def calculate_current_ratio(session: Session, user_id: int):
-    _ = LedgerAccount, JournalEntry
     balance_sheet = generate_balance_sheet(session, user_id)
     current_assets = float(sum(balance_sheet.get("assets", {}).values()))
     current_liabilities = float(sum(balance_sheet.get("liabilities", {}).values()))

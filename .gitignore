@@ -1,1 +1,12 @@
-node_modules
+__pycache__/
+*.pyc
+.env
+.env.local
+uploads/
+node_modules/
+dist/
+logs/
+.pytest_cache/
+.next/
+*.log
+app.db

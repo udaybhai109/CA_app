@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+pydantic
+sqlalchemy
+starlette
+python-jose
+passlib[bcrypt]
+bcrypt<5
+openai
+chromadb
