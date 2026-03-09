@@ -12,3 +12,4 @@ pdfplumber
 openpyxl
 openai
 chromadb
+gunicorn
