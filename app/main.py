@@ -1,10 +1,14 @@
 import json
 import os
 from datetime import datetime
+from pathlib import Path
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+import pandas as pd
+import pdfplumber
+from fastapi import Depends, FastAPI, File, HTTPException, Request, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 from starlette.responses import JSONResponse
 
@@ -22,7 +26,7 @@ from .auth import (
     verify_token,
     verify_password,
 )
-from .database import Base, engine, get_db
+from .database import engine, get_db
 from .financial_analysis import calculate_cash_runway, calculate_current_ratio, calculate_net_profit_margin
 from .forecasting import (
     forecast_cash_balance,
@@ -35,7 +39,7 @@ from .gst_service import (
     generate_monthly_gst_summary,
     generate_monthly_tds_summary,
 )
-from .models import AuditLog, RefreshToken, User
+from .models import AuditLog, Base, RefreshToken, User
 from .period_service import close_period
 
 
@@ -43,6 +47,8 @@ app = FastAPI(title="AI Accounting Backend")
 REFRESH_COOKIE_NAME = "refresh_token"
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 CORS_ALLOW_ORIGINS = os.getenv("CORS_ALLOW_ORIGINS", "*")
+UPLOAD_DIR = Path("uploads")
+ALLOWED_UPLOAD_SUFFIXES = {".pdf", ".csv", ".xlsx"}
 
 if CORS_ALLOW_ORIGINS == "*":
     allowed_origins = ["*"]
@@ -96,8 +102,75 @@ def clear_refresh_cookie(response: Response) -> None:
 
 
 @app.on_event("startup")
-def on_startup():
+def startup():
     Base.metadata.create_all(bind=engine)
+
+
+def _save_uploaded_file(file: UploadFile) -> Path:
+    if not file.filename:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Filename is required")
+
+    suffix = Path(file.filename).suffix.lower()
+    if suffix not in ALLOWED_UPLOAD_SUFFIXES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only .pdf, .csv, and .xlsx files are supported",
+        )
+
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    safe_name = Path(file.filename).name
+    timestamp = datetime.utcnow().strftime("%Y%m%d%H%M%S%f")
+    file_path = UPLOAD_DIR / f"{timestamp}_{safe_name}"
+
+    try:
+        with file_path.open("wb") as buffer:
+            while True:
+                chunk = file.file.read(1024 * 1024)
+                if not chunk:
+                    break
+                buffer.write(chunk)
+    except OSError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save uploaded file",
+        ) from exc
+    finally:
+        file.file.close()
+
+    return file_path
+
+
+def _parse_tabular_file(file_path: Path) -> list[dict]:
+    try:
+        if file_path.suffix.lower() == ".csv":
+            dataframe = pd.read_csv(file_path)
+        else:
+            dataframe = pd.read_excel(file_path)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unable to parse CSV/XLSX file",
+        ) from exc
+
+    dataframe = dataframe.where(pd.notnull(dataframe), None)
+    return dataframe.to_dict(orient="records")
+
+
+def _parse_pdf_file(file_path: Path) -> str:
+    try:
+        pages_text: list[str] = []
+        with pdfplumber.open(file_path) as pdf:
+            for page in pdf.pages:
+                page_text = page.extract_text() or ""
+                if page_text:
+                    pages_text.append(page_text)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unable to parse PDF file",
+        ) from exc
+
+    return "\n".join(pages_text)[:2000]
 
 
 @app.middleware("http")
@@ -150,7 +223,21 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)):
         role=payload.role or "business",
     )
     db.add(user)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered",
+        ) from exc
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database operation failed",
+        ) from exc
+
     db.refresh(user)
 
     return {"id": user.id, "email": user.email, "role": user.role}
@@ -173,10 +260,34 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
             expires_at=refresh_expires_at,
         )
     )
-    db.commit()
+    try:
+        db.commit()
+    except SQLAlchemyError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database operation failed",
+        ) from exc
 
     set_refresh_cookie(response, refresh_token_plain)
     return {"access_token": access_token, "token_type": "bearer"}
+
+
+@app.post("/upload")
+def upload_file(file: UploadFile = File(...)):
+    file_path = _save_uploaded_file(file)
+    file_type = file_path.suffix.lower().lstrip(".")
+
+    if file_path.suffix.lower() == ".pdf":
+        content: str | list[dict] = _parse_pdf_file(file_path)
+    else:
+        content = _parse_tabular_file(file_path)
+
+    return {
+        "filename": file_path.name,
+        "type": file_type,
+        "content": content,
+    }
 
 
 @app.post("/refresh")
