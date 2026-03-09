@@ -1,5 +1,6 @@
 fastapi
 uvicorn
+gunicorn
 pydantic
 sqlalchemy
 starlette
@@ -10,6 +11,5 @@ python-multipart
 pandas
 pdfplumber
 openpyxl
-openai
 chromadb
-gunicorn
+openai
