@@ -54,10 +54,8 @@ const AdminRatesPage: NextPage = () => {
         setError(null);
         const payload = (await getAdminGstRates()) as RateRow[] | RatesResponse;
         const data = Array.isArray(payload)
-          ? payload
-          : "rates" in payload
-            ? payload.rates
-            : [];
+  ? payload
+  : (payload as RatesResponse)?.rates ?? [];
         const normalized = data.map((row, index) =>
           normalizeRateRow(row as Record<string, unknown>, index)
         );
