@@ -9,7 +9,6 @@ import {
 } from "react";
 
 import { login as loginRequest, logout as logoutRequest, refreshAccessToken } from "../lib/auth";
-import { configureApiAuth } from "../lib/api";
 
 type CurrentUser = {
   id: number;
@@ -50,28 +49,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [authLoading, setAuthLoading] = useState(true);
 
   const applyAccessToken = useCallback((token: string | null) => {
-    setAccessToken(token);
-    setCurrentUser(token ? decodeToken(token) : null);
-  }, []);
+    const decodedUser = token ? decodeToken(token) : null;
 
-  useEffect(() => {
-    configureApiAuth({
-      getAccessToken: () => accessToken,
-      setAccessToken: applyAccessToken,
-    });
-  }, [accessToken, applyAccessToken]);
+    setAccessToken(token);
+    setCurrentUser(decodedUser);
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    if (token) {
+      window.localStorage.setItem("token", token);
+    } else {
+      window.localStorage.removeItem("token");
+    }
+
+    if (decodedUser?.role) {
+      window.localStorage.setItem("role", decodedUser.role);
+    } else {
+      window.localStorage.removeItem("role");
+    }
+  }, []);
 
   useEffect(() => {
     let mounted = true;
 
     const bootstrap = async () => {
+      const storedToken =
+        typeof window !== "undefined" ? window.localStorage.getItem("token") : null;
+
+      if (storedToken && mounted) {
+        applyAccessToken(storedToken);
+      }
+
       try {
         const refreshed = await refreshAccessToken();
         if (mounted) {
           applyAccessToken(refreshed);
         }
       } catch {
-        if (mounted) {
+        if (mounted && !storedToken) {
           applyAccessToken(null);
         }
       } finally {
@@ -104,7 +121,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const value = useMemo<AuthContextValue>(
     () => ({
       currentUser,
-      isAuthenticated: !!accessToken,
+      isAuthenticated: !!currentUser,
       accessToken,
       authLoading,
       login,

@@ -1,102 +1,110 @@
-import axios, { AxiosError, InternalAxiosRequestConfig } from "axios";
+const API = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
 
-import { refreshAccessToken } from "./auth";
-
-const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API,
-  withCredentials: false,
-});
-export const apiClient = api;
-
-type AuthConfig = {
-  getAccessToken: () => string | null;
-  setAccessToken: (token: string | null) => void;
-};
-
-let authConfig: AuthConfig = {
-  getAccessToken: () => null,
-  setAccessToken: () => undefined,
-};
-
-let refreshPromise: Promise<string> | null = null;
-
-type RetryRequestConfig = InternalAxiosRequestConfig & { _retry?: boolean };
-
-export const configureApiAuth = (config: AuthConfig) => {
-  authConfig = config;
-};
-
-api.interceptors.request.use((config) => {
-  const token = authConfig.getAccessToken();
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
+const getApiUrl = (path: string) => {
+  if (!API) {
+    throw new Error("NEXT_PUBLIC_API_URL is not configured.");
   }
-  return config;
-});
 
-api.interceptors.response.use(
-  (response) => response,
-  async (error: AxiosError) => {
-    const originalRequest = error.config as RetryRequestConfig | undefined;
+  return `${API}${path}`;
+};
 
-    if (!originalRequest || originalRequest._retry || error.response?.status !== 401) {
-      return Promise.reject(error);
-    }
-
-    const url = originalRequest.url || "";
-    if (url.includes("/login") || url.includes("/register") || url.includes("/refresh")) {
-      return Promise.reject(error);
-    }
-
-    originalRequest._retry = true;
-
-    try {
-      if (!refreshPromise) {
-        refreshPromise = refreshAccessToken();
-      }
-      const newAccessToken = await refreshPromise;
-      authConfig.setAccessToken(newAccessToken);
-      originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
-      return api(originalRequest);
-    } catch (refreshError) {
-      authConfig.setAccessToken(null);
-      return Promise.reject(refreshError);
-    } finally {
-      refreshPromise = null;
-    }
+const getStoredToken = () => {
+  if (typeof window === "undefined") {
+    return null;
   }
-);
 
-export const getFinancialHealth = async (userId: number) => {
-  const response = await api.get(`/financial-health/${userId}`);
-  return response.data;
+  return window.localStorage.getItem("token");
 };
 
-export const getGstSummary = async (userId: number, month: string) => {
-  const response = await api.get(`/gst-summary/${userId}/${month}`);
-  return response.data;
+const parseResponse = async (response: Response) => {
+  const contentType = response.headers.get("content-type") || "";
+
+  if (contentType.includes("application/json")) {
+    return response.json();
+  }
+
+  const text = await response.text();
+  return text ? { detail: text } : null;
 };
 
-export const getAlerts = async (userId: number) => {
-  const response = await api.get(`/alerts/${userId}`);
-  return response.data;
+export async function apiRequest<T = unknown>(path: string, options: RequestInit = {}) {
+  const token = getStoredToken();
+  const headers = new Headers(options.headers);
+  const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
+
+  if (!isFormData && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  if (token && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  const response = await fetch(getApiUrl(path), {
+    ...options,
+    headers,
+    credentials: "include",
+  });
+
+  const data = await parseResponse(response);
+
+  if (!response.ok) {
+    const detail =
+      data &&
+      typeof data === "object" &&
+      "detail" in data &&
+      typeof data.detail === "string"
+        ? data.detail
+        : "API Error";
+
+    throw new Error(detail);
+  }
+
+  return data as T;
+}
+
+export const getFinancialHealth = (userId: number) => {
+  return apiRequest(`/financial-health/${userId}`);
 };
 
-export const getPnl = async (userId: number) => {
-  const response = await api.get(`/pnl/${userId}`);
-  return response.data;
+export const getGstSummary = (userId: number, month: string) => {
+  return apiRequest(`/gst-summary/${userId}/${month}`);
 };
 
-export const getBalanceSheet = async (userId: number) => {
-  const response = await api.get(`/balance-sheet/${userId}`);
-  return response.data;
+export const getAlerts = (userId: number) => {
+  return apiRequest(`/alerts/${userId}`);
 };
 
-export const uploadFile = async (file: File) => {
+export const getPnl = (userId: number) => {
+  return apiRequest(`/pnl/${userId}`);
+};
+
+export const getBalanceSheet = (userId: number) => {
+  return apiRequest(`/balance-sheet/${userId}`);
+};
+
+export const getAdvice = (userId: number, question: string) => {
+  const params = new URLSearchParams({ question });
+  return apiRequest(`/advice/${userId}?${params.toString()}`);
+};
+
+export const getAdminGstRates = () => {
+  return apiRequest("/admin/gst-rates");
+};
+
+export const saveAdminGstRates = (rates: unknown) => {
+  return apiRequest("/admin/gst-rates", {
+    method: "POST",
+    body: JSON.stringify({ rates }),
+  });
+};
+
+export const uploadFile = (file: File) => {
   const formData = new FormData();
   formData.append("file", file);
-  const response = await api.post("/upload", formData, {
-    headers: { "Content-Type": "multipart/form-data" },
+
+  return apiRequest("/upload", {
+    method: "POST",
+    body: formData,
   });
-  return response.data;
 };

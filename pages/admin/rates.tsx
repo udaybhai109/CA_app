@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { NextPage } from "next";
 import Head from "next/head";
-import { apiClient } from "../../lib/api";
+import { getAdminGstRates, saveAdminGstRates } from "../../lib/api";
 
 type GSTRateRow = {
   id?: number | string;
@@ -46,8 +46,7 @@ const AdminRatesPage: NextPage = () => {
       try {
         setIsLoading(true);
         setError(null);
-        const response = await apiClient.get("/admin/gst-rates");
-        const payload = response.data;
+        const payload = await getAdminGstRates();
         const data = Array.isArray(payload) ? payload : payload?.rates;
         const normalized = Array.isArray(data)
           ? data.map((row, index) => normalizeRateRow(row as Record<string, unknown>, index))
@@ -95,7 +94,7 @@ const AdminRatesPage: NextPage = () => {
         effective_to: row.effective_to,
       }));
 
-      await apiClient.post("/admin/gst-rates", { rates: payload });
+      await saveAdminGstRates(payload);
       setSuccess("GST rates saved successfully.");
     } catch {
       setError("Failed to save GST rates.");

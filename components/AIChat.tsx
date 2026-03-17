@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 
-import { apiClient } from "../lib/api";
+import { getAdvice } from "../lib/api";
 
 type Message = {
   id: string;
@@ -101,10 +101,8 @@ export default function AIChat({ userId = 1 }: AIChatProps) {
     setQuestion("");
 
     try {
-      const response = await apiClient.get(`/advice/${userId}`, {
-        params: { question: trimmedQuestion },
-      });
-      const parsed = parseAdviceResponse(response.data);
+      const data = await getAdvice(userId, trimmedQuestion);
+      const parsed = parseAdviceResponse(data);
 
       setMessages((prev) => [
         ...prev,
