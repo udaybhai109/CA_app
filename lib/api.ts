@@ -1,5 +1,11 @@
 const API = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
 
+type RateRow = Record<string, unknown>;
+
+type RatesResponse = {
+  rates: RateRow[];
+};
+
 const getApiUrl = (path: string) => {
   if (!API) {
     throw new Error("NEXT_PUBLIC_API_URL is not configured.");
@@ -88,9 +94,11 @@ export const getAdvice = (userId: number, question: string) => {
   return apiRequest(`/advice/${userId}?${params.toString()}`);
 };
 
-export const getAdminGstRates = () => {
-  return apiRequest("/admin/gst-rates");
-};
+export async function getAdminGstRates(): Promise<RateRow[] | RatesResponse> {
+  return apiRequest<RateRow[] | RatesResponse>("/admin/gst-rates", {
+    method: "GET",
+  });
+}
 
 export const saveAdminGstRates = (rates: unknown) => {
   return apiRequest("/admin/gst-rates", {

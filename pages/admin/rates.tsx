@@ -3,6 +3,12 @@ import type { NextPage } from "next";
 import Head from "next/head";
 import { getAdminGstRates, saveAdminGstRates } from "../../lib/api";
 
+type RateRow = Record<string, unknown>;
+
+type RatesResponse = {
+  rates: RateRow[];
+};
+
 type GSTRateRow = {
   id?: number | string;
   hsn: string;
@@ -46,11 +52,15 @@ const AdminRatesPage: NextPage = () => {
       try {
         setIsLoading(true);
         setError(null);
-        const payload = await getAdminGstRates();
-        const data = Array.isArray(payload) ? payload : payload?.rates;
-        const normalized = Array.isArray(data)
-          ? data.map((row, index) => normalizeRateRow(row as Record<string, unknown>, index))
-          : [];
+        const payload = (await getAdminGstRates()) as RateRow[] | RatesResponse;
+        const data = Array.isArray(payload)
+          ? payload
+          : "rates" in payload
+            ? payload.rates
+            : [];
+        const normalized = data.map((row, index) =>
+          normalizeRateRow(row as Record<string, unknown>, index)
+        );
         setRows(normalized);
       } catch {
         setError("Failed to fetch GST rates.");
