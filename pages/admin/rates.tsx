@@ -52,10 +52,16 @@ const AdminRatesPage: NextPage = () => {
       try {
         setIsLoading(true);
         setError(null);
-        const payload = (await getAdminGstRates()) as RateRow[] | RatesResponse;
-        const data = Array.isArray(payload)
-  ? payload
-  : (payload as RatesResponse)?.rates ?? [];
+        const payload: unknown = await getAdminGstRates();
+
+        let data: Record<string, unknown>[] = [];
+
+        if (Array.isArray(payload)) {
+          data = payload;
+        } else if (payload && typeof payload === "object" && "rates" in payload) {
+          data = (payload as { rates: Record<string, unknown>[] }).rates;
+        }
+
         const normalized = data.map((row, index) =>
           normalizeRateRow(row as Record<string, unknown>, index)
         );
